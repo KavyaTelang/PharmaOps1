@@ -119,6 +119,12 @@ export const api = {
   getDashboardStats: () => apiCall('/admin/dashboard-stats').catch(() => ({})),
 
   // ===== AUDITOR ENDPOINTS =====
+  logAction: (data: { action: string; entityType: string; entityId?: string; details?: string; changes?: any }) =>
+    apiCall('/auditor/logs/record', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   getAuditLogs: (filters?: { startDate?: string; endDate?: string; entityType?: string; action?: string; limit?: number }) => {
     const params = new URLSearchParams();
     if (filters?.startDate) params.append('startDate', filters.startDate);

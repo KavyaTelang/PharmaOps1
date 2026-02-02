@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { 
+  logAction,
   getAuditLogs,
   getOrderTrace,
   generateComplianceReport,
@@ -8,7 +9,10 @@ import { authenticateToken, authorizeRole } from '../middleware/auth';
 
 const router = Router();
 
-// All routes require authentication and AUDITOR role
+// Log action route (accessible to all authenticated users, not just auditors)
+router.post('/logs/record', authenticateToken, logAction);
+
+// All other routes require authentication and AUDITOR role
 router.use(authenticateToken);
 router.use(authorizeRole('AUDITOR'));
 

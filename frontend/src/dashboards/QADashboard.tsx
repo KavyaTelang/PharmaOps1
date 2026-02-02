@@ -85,6 +85,15 @@ const QADashboard = () => {
       await new Promise(resolve => setTimeout(resolve, 800));
       await approveDocument(currentDoc.id, 'Dr. Pulashya Verma', password, comments);
       
+      // Log action
+      await api.logAction({
+        action: 'DOCUMENT_APPROVED',
+        entityType: 'DOCUMENT',
+        entityId: currentDoc.id,
+        details: `QA approved document ${currentDoc.fileName}`,
+        changes: { status: 'APPROVED', comments: comments },
+      }).catch(err => console.log('Audit log failed:', err));
+      
       setIsProcessing(false);
       setSelectedDoc(null);
       alert(`✅ Document Approved & Signed!\n\nOrder ${currentDoc.orderNumber} compliance updated.\nBlockchain Hash: ${currentDoc.blockchainTx || '0x7f83b165...'}`);
@@ -104,6 +113,16 @@ const QADashboard = () => {
 
     try {
       await rejectDocument(currentDoc.id, 'Dr. Pulashya Verma', comments);
+      
+      // Log action
+      await api.logAction({
+        action: 'DOCUMENT_REJECTED',
+        entityType: 'DOCUMENT',
+        entityId: currentDoc.id,
+        details: `QA rejected document ${currentDoc.fileName}`,
+        changes: { status: 'REJECTED', reason: comments },
+      }).catch(err => console.log('Audit log failed:', err));
+      
       setSelectedDoc(null);
       alert(`❌ Document Rejected\n\nVendor has been notified to re-upload.\nReason: ${comments}`);
     } catch (error) {

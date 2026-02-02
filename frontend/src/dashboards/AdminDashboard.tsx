@@ -197,6 +197,14 @@ const AdminDashboard = () => {
         capacity: inviteCapacity,
       });
       
+      // Log action
+      await api.logAction({
+        action: 'VENDOR_INVITE_SENT',
+        entityType: 'VENDOR',
+        details: `Invited vendor ${inviteCompanyName} (${inviteEmail})`,
+        changes: { companyName: inviteCompanyName, email: inviteEmail, capacity: inviteCapacity },
+      }).catch(err => console.log('Audit log failed:', err));
+      
       alert(`✅ Vendor invite sent to ${inviteCompanyName}!\nTemp password: vendor123`);
       setInviteEmail('');
       setInviteCompanyName('');
@@ -224,6 +232,14 @@ const AdminDashboard = () => {
         category: ruleCategory,
       });
       
+      // Log action
+      await api.logAction({
+        action: 'COMPLIANCE_RULE_CREATED',
+        entityType: 'COMPLIANCE_RULE',
+        details: `Created compliance rule for ${ruleDocType}`,
+        changes: { docType: ruleDocType, requirement: ruleRequirement, category: ruleCategory },
+      }).catch(err => console.log('Audit log failed:', err));
+      
       const product = products.find(p => p.id === ruleProductId);
       alert(`✅ Compliance rule defined for ${product?.name}`);
       setRuleProductId('');
@@ -249,6 +265,14 @@ const AdminDashboard = () => {
         fileName: masterDocFile.name,
       });
       
+      // Log action
+      await api.logAction({
+        action: 'MASTER_SOP_UPLOADED',
+        entityType: 'DOCUMENT',
+        details: `Uploaded master SOP: ${masterDocFile.name} for ${masterDocType}`,
+        changes: { fileName: masterDocFile.name, docType: masterDocType },
+      }).catch(err => console.log('Audit log failed:', err));
+      
       alert(`✅ Master SOP uploaded: ${masterDocFile.name}`);
       setMasterDocFile(null);
       setMasterDocProductId('');
@@ -272,6 +296,14 @@ const AdminDashboard = () => {
         quantity: orderQuantity,
         destination: orderDestination,
       });
+      
+      // Log action
+      await api.logAction({
+        action: 'ORDER_CREATED',
+        entityType: 'ORDER',
+        details: `Created order for ${orderQuantity} units to ${orderDestination}`,
+        changes: { vendorId: orderVendorId, productId: orderProductId, quantity: orderQuantity, destination: orderDestination },
+      }).catch(err => console.log('Audit log failed:', err));
       
       const vendor = vendors.find(v => v.id === orderVendorId);
       const product = products.find(p => p.id === orderProductId);

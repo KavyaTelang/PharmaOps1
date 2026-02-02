@@ -84,6 +84,15 @@ const VendorDashboard = () => {
     
     try {
       await api.acceptInvitation();
+      
+      // Log action
+      await api.logAction({
+        action: 'INVITATION_ACCEPTED',
+        entityType: 'VENDOR_PROFILE',
+        details: 'Vendor accepted partnership invitation',
+        changes: { status: 'ACCEPTED' },
+      }).catch(err => console.log('Audit log failed:', err));
+      
       alert(`✅ Partnership accepted! You can now receive orders.`);
       await loadAllData();
     } catch (error) {
@@ -95,6 +104,15 @@ const VendorDashboard = () => {
   const handleAcceptOrder = async (orderId: string) => {
     try {
       await api.acceptOrder(orderId);
+      
+      // Log action
+      await api.logAction({
+        action: 'ORDER_ACCEPTED',
+        entityType: 'ORDER',
+        entityId: orderId,
+        details: `Vendor accepted order`,
+        changes: { status: 'ACCEPTED' },
+      }).catch(err => console.log('Audit log failed:', err));
       
       const order = orders.find(o => o.id === orderId);
       alert(`✅ Order ${order?.orderNumber} accepted! Compliance checklist generated.`);
@@ -120,6 +138,15 @@ const VendorDashboard = () => {
             fileName: file.name,
           });
           
+          // Log action
+          await api.logAction({
+            action: 'DOCUMENT_UPLOADED',
+            entityType: 'DOCUMENT',
+            entityId: orderId,
+            details: `Vendor uploaded ${docType} document: ${file.name}`,
+            changes: { fileName: file.name, docType: docType },
+          }).catch(err => console.log('Audit log failed:', err));
+          
           alert(`✅ Document uploaded: ${file.name}\nSent to QA for review.`);
           await loadAllData();
         } catch (error) {
@@ -144,6 +171,15 @@ const VendorDashboard = () => {
         trackingNumber: trackingInput,
         courier: courierInput,
       });
+      
+      // Log action
+      await api.logAction({
+        action: 'SHIPMENT_CREATED',
+        entityType: 'SHIPMENT',
+        entityId: shipmentModalOpen,
+        details: `Vendor created shipment via ${courierInput} with tracking ${trackingInput}`,
+        changes: { trackingNumber: trackingInput, courier: courierInput },
+      }).catch(err => console.log('Audit log failed:', err));
       
       const order = orders.find(o => o.id === shipmentModalOpen);
       alert(`✅ Shipment created for Order ${order?.orderNumber}!\nTracking: ${trackingInput}`);

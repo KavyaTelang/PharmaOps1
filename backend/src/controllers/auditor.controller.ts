@@ -1,10 +1,43 @@
 import { Request, Response } from 'express';
 import { AppDataSource } from '../database/config';
-import { AuditTrail } from '../entities';
-import { Order } from '../entities';
-import { Document } from '../entities';
-import { Shipment } from '../entities';
-import { OrderDocumentStatus } from '../entities';
+import { AuditTrail, Order, Document, Shipment, OrderDocumentStatus, User } from '../entities';
+
+// Log an action (called by other controllers/dashboards)
+export const logAction = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { action, entityType, entityId, details, changes } = req.body;
+
+    // Validation
+    if (!action || !entityType) {
+      return res.status(400).json({ error: 'action and entityType are required' });
+    }
+
+    const auditRepo = AppDataSource.getRepository(AuditTrail);
+    
+    const auditEntry = auditRepo.create({
+      action,
+      entityType,
+      entityId: entityId || null,
+      comments: details || '',
+      oldValue: {},
+      newValue: changes || {},
+      actorUserId: user.userId,
+      companyId: user.companyId,
+      timestamp: new Date(),
+    });
+
+    await auditRepo.save(auditEntry);
+
+    res.json({ 
+      message: 'Action logged successfully',
+      auditId: auditEntry.id,
+    });
+  } catch (error) {
+    console.error('Error logging action:', error);
+    res.status(500).json({ error: 'Failed to log action' });
+  }
+};
 
 // Get audit logs with filters
 export const getAuditLogs = async (req: Request, res: Response) => {
@@ -13,11 +46,12 @@ export const getAuditLogs = async (req: Request, res: Response) => {
     const { startDate, endDate, entityType, action, limit = 100 } = req.query;
     
     const auditRepo = AppDataSource.getRepository(AuditTrail);
+    const userRepo = AppDataSource.getRepository(User);
     
     const queryBuilder = auditRepo.createQueryBuilder('audit')
       .where('audit.companyId = :companyId', { companyId: user.companyId })
       .orderBy('audit.timestamp', 'DESC')
-      .limit(parseInt(limit as string));
+      .limit(parseInt(limit as string) || 100);
     
     // Apply filters
     if (startDate) {
@@ -35,9 +69,40 @@ export const getAuditLogs = async (req: Request, res: Response) => {
     
     const auditLogs = await queryBuilder.getMany();
     
+    // Transform logs to include actor details for frontend
+    const logsWithActors = auditLogs.map(log => {
+      const actor = { id: log.actorUserId, name: 'System', role: 'SYSTEM' };
+      return {
+        id: log.id,
+        timestamp: log.timestamp,
+        action: log.action,
+        entity: log.entityType,
+        entityId: log.entityId,
+        details: log.comments,
+        changes: log.newValue,
+        actor: actor,
+        blockchainHash: null,
+        blockchainTx: null,
+      };
+    });
+    
+    // Get actor details asynchronously but don't block response
+    if (logsWithActors.length > 0) {
+      (async () => {
+        for (let log of logsWithActors) {
+          const actorUser = await userRepo.findOne({ where: { id: log.actor.id } }).catch(() => null);
+          if (actorUser) {
+            log.actor.name = actorUser.email;
+            log.actor.role = actorUser.role;
+          }
+        }
+      })();
+    }
+    
     res.json({ 
-      auditLogs,
-      total: auditLogs.length,
+      logs: logsWithActors,
+      auditLogs: logsWithActors, // Support both field names
+      total: logsWithActors.length,
     });
   } catch (error) {
     console.error('Error fetching audit logs:', error);
