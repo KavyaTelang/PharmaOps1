@@ -3,6 +3,7 @@ import { useAppContext } from '../context/AppContext';
 import { api } from '../services/api';
 
 const QADashboard = () => {
+  // ===== USE CONTEXT =====
   const {
     documents,
     orders,
@@ -14,21 +15,21 @@ const QADashboard = () => {
     rejectDocument,
   } = useAppContext();
 
-  // Navigation state
-  const [currentPage, setCurrentPage] = useState('queue');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  
+  // ===== LOCAL STATE =====
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null);
   const [showMasterDoc, setShowMasterDoc] = useState(false);
   
+  // Form State
   const [password, setPassword] = useState('');
   const [comments, setComments] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [processStep, setProcessStep] = useState('');
 
+  // Get pending documents
   const pendingDocs = documents.filter(d => d.status === 'PENDING_REVIEW');
   const currentDoc = documents.find(d => d.id === selectedDoc);
 
+  // ===== HANDLERS =====
   const handleOpenReview = (docId: string) => {
     setSelectedDoc(docId);
     setPassword('');
@@ -84,7 +85,7 @@ const QADashboard = () => {
       await new Promise(resolve => setTimeout(resolve, 800));
       await approveDocument(currentDoc.id, 'Dr. Pulashya Verma', password, comments);
       
-      // Log action for audit trail
+      // Log action
       await api.logAction({
         action: 'DOCUMENT_APPROVED',
         entityType: 'DOCUMENT',
@@ -113,7 +114,7 @@ const QADashboard = () => {
     try {
       await rejectDocument(currentDoc.id, 'Dr. Pulashya Verma', comments);
       
-      // Log action for audit trail
+      // Log action
       await api.logAction({
         action: 'DOCUMENT_REJECTED',
         entityType: 'DOCUMENT',
@@ -130,6 +131,7 @@ const QADashboard = () => {
     }
   };
 
+  // ===== HELPERS =====
   const getAIScoreColor = (score: number) => {
     if (score >= 90) return '#10b981'; 
     if (score >= 70) return '#f59e0b'; 
@@ -145,101 +147,89 @@ const QADashboard = () => {
     }
   };
 
+  // ===== RENDERERS =====
   const renderQueue = () => {
     const highCount = pendingDocs.filter(d => d.priority === 'HIGH').length;
     const medCount = pendingDocs.filter(d => d.priority === 'MEDIUM').length;
     const lowCount = pendingDocs.filter(d => d.priority === 'LOW').length;
 
     return (
-      <>
-        <div className="qa-stats-section">
-          <div className="qa-stat-card">
-            <div className="qa-stat-icon-circle">
-              <img src="high-priority.png" alt="icon" style={{width: '30px', height: '40px'}} />
-            </div>
-            <div className="qa-stat-label">High Priority</div>
-            <div className="qa-stat-value">{highCount}</div>
+      <div className="qa-section">
+        {/* KPI Cards */}
+        <div className="qa-stats-grid">
+          <div className="qa-stat-card red">
+            <span className="qa-stat-label">🔥 High Priority</span>
+            <span className="qa-stat-val">{highCount}</span>
           </div>
-          <div className="qa-stat-card">
-            <div className="qa-stat-icon-circle">
-              <img src="medium-priority.png" alt="icon" style={{width: '37px', height: '37px'}} />
-            </div>
-            <div className="qa-stat-label">Medium Priority</div>
-            <div className="qa-stat-value">{medCount}</div>
+          <div className="qa-stat-card yellow">
+            <span className="qa-stat-label">⚖️ Medium Priority</span>
+            <span className="qa-stat-val">{medCount}</span>
           </div>
-          <div className="qa-stat-card">
-            <div className="qa-stat-icon-circle">
-              <img src="low-priority.png" alt="icon" style={{width: '35px', height: '35px'}} />
-            </div>
-            <div className="qa-stat-label">Low Priority</div>
-            <div className="qa-stat-value">{lowCount}</div>
+          <div className="qa-stat-card green">
+            <span className="qa-stat-label">🌱 Low Priority</span>
+            <span className="qa-stat-val">{lowCount}</span>
           </div>
-          <div className="qa-stat-card">
-            <div className="qa-stat-icon-circle">
-              <img src="pending.png" alt="icon" style={{width: '40px', height: '40px'}} />
-            </div>
-            <div className="qa-stat-label">Total Pending</div>
-            <div className="qa-stat-value">{pendingDocs.length}</div>
+          <div className="qa-stat-card blue">
+            <span className="qa-stat-label">⏱️ Total Pending</span>
+            <span className="qa-stat-val">{pendingDocs.length}</span>
           </div>
         </div>
 
+        <div className="qa-section-header">
+          <h2>📋 Review Queue</h2>
+          <span className="qa-badge-count">{pendingDocs.length} Pending</span>
+        </div>
+        
         <div className="qa-card">
-          <div className="qa-card-header">
-            <h3>Review Queue</h3>
-          </div>
-          <div className="qa-table-wrapper">
-            <table className="qa-table">
-              <thead>
-                <tr>
-                  <th>Priority</th>
-                  <th>Doc Type</th>
-                  <th>Order ID</th>
-                  <th>Vendor</th>
-                  <th>AI Risk Score</th>
-                  <th>Received</th>
-                  <th className="align-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pendingDocs.map(doc => {
-                  const pStyle = getPriorityColor(doc.priority || 'MEDIUM');
-                  return (
-                    <tr key={doc.id} onClick={() => handleOpenReview(doc.id)}>
-                      <td>
-                        <span className="qa-priority-badge" style={{ backgroundColor: pStyle.bg, color: pStyle.text, borderColor: pStyle.border }}>
-                          {doc.priority || 'MEDIUM'}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="qa-doc-name">{doc.docType || 'Document'}</div>
-                        <div className="qa-doc-sub">{doc.fileName || 'N/A'}</div>
-                      </td>
-                      <td className="font-medium">{doc.orderNumber || 'N/A'}</td>
-                      <td>{doc.vendorName || 'Vendor'}</td>
-                      <td>
-                        <div className="qa-ai-pill" style={{ borderColor: getAIScoreColor(doc.aiInsights?.qualityScore || 85), color: getAIScoreColor(doc.aiInsights?.qualityScore || 85) }}>
-                          {doc.aiInsights?.qualityScore || 85}% Safe
-                        </div>
-                      </td>
-                      <td className="text-gray">{doc.uploadDate || new Date(doc.createdAt).toLocaleDateString()}</td>
-                      <td className="align-right">
-                        <button className="qa-btn primary small">Review</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {pendingDocs.length === 0 && (
-                  <tr>
-                    <td colSpan={7} style={{textAlign: 'center', padding: '3rem', color: '#9ca3af'}}>
-                       All Caught Up! No documents pending review.
+          <table className="qa-table">
+            <thead>
+              <tr>
+                <th>Priority</th>
+                <th>Doc Type</th>
+                <th>Order ID</th>
+                <th>Vendor</th>
+                <th>AI Risk Score</th>
+                <th>Received</th>
+                <th className="align-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingDocs.map(doc => {
+                const pStyle = getPriorityColor(doc.priority || 'MEDIUM');
+                return (
+                  <tr key={doc.id} className="qa-row-hover" onClick={() => handleOpenReview(doc.id)}>
+                    <td>
+                      <span className="qa-priority-badge" style={{ backgroundColor: pStyle.bg, color: pStyle.text, borderColor: pStyle.border }}>
+                        {doc.priority || 'MEDIUM'}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="qa-doc-name">{doc.docType || 'Document'}</div>
+                      <div className="qa-doc-sub">{doc.fileName || 'N/A'}</div>
+                    </td>
+                    <td className="font-medium">{doc.orderNumber || 'N/A'}</td>
+                    <td>{doc.vendorName || 'Vendor'}</td>
+                    <td>
+                      <div className="qa-ai-pill" style={{ borderColor: getAIScoreColor(doc.aiInsights?.qualityScore || 85), color: getAIScoreColor(doc.aiInsights?.qualityScore || 85) }}>
+                        {doc.aiInsights?.qualityScore || 85}% Safe
+                      </div>
+                    </td>
+                    <td className="text-gray">{doc.uploadDate || new Date(doc.createdAt).toLocaleDateString()}</td>
+                    <td className="align-right">
+                      <button className="qa-btn secondary">Review</button>
                     </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                );
+              })}
+              {pendingDocs.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="qa-empty">🎉 All Caught Up! No documents pending review.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      </>
+      </div>
     );
   };
 
@@ -248,20 +238,35 @@ const QADashboard = () => {
 
     const order = getOrderById(currentDoc.orderId);
     const product = order ? getProductById(order.productId) : null;
+    
+    // Determine if this is Packing List or Certificate of Analysis
     const isPackingList = currentDoc.docType.toLowerCase().includes('packing');
 
     return (
-      <div className="qa-workspace">
+      <div className="qa-workspace vd-animate-in">
+        {/* Header */}
         <div className="qa-ws-header">
-          <div>
-            <button onClick={handleCloseReview} className="qa-back-btn">← Back to Queue</button>
-            <h2 style={{margin: '0.5rem 0 0 0'}}>Reviewing: {currentDoc.docType}</h2>
-            <span className="qa-meta">Order {currentDoc.orderNumber} • Uploaded by {currentDoc.vendorName}</span>
+          <div className="qa-ws-title">
+            <button onClick={handleCloseReview} className="qa-back-btn">← Back</button>
+            <div>
+              <h1>Reviewing: {currentDoc.docType}</h1>
+              <span className="qa-meta">Order {currentDoc.orderNumber} • Uploaded by {currentDoc.vendorName}</span>
+            </div>
+          </div>
+          <div className="qa-ws-actions">
+            <div className="qa-secure-box">
+              <span className="qa-secure-badge">🔒 21 CFR Part 11 Mode</span>
+              <div className="qa-secure-tooltip">
+                • Identity Verified via Electronic Signature<br/>
+                • Full Audit Trail Logged
+              </div>
+            </div>
           </div>
         </div>
 
         <div className="qa-ws-grid">
-          {/* LEFT PANEL: EVIDENCE */}
+          
+          {/* LEFT PANEL: EVIDENCE - MOCK DATA BASED ON DOC TYPE */}
           <div className="qa-panel left">
             <div className="qa-panel-header">📄 Evidence (Vendor Upload)</div>
             <div className="qa-pdf-mock">
@@ -287,6 +292,7 @@ const QADashboard = () => {
                   </div>
                   
                   {isPackingList ? (
+                    // PACKING LIST MOCK DATA FOR REFERENCE
                     <>
                       <strong>Expected Content:</strong>
                       <div className="pdf-row"><strong>Product:</strong> Atenolol 50mg Tablets</div>
@@ -295,6 +301,7 @@ const QADashboard = () => {
                       <br />
                     </>
                   ) : (
+                    // CERTIFICATE OF ANALYSIS MOCK DATA FOR REFERENCE
                     <>
                       <strong>Expected Content:</strong>
                       <div className="pdf-row"><strong>Product:</strong> Atenolol 50mg</div>
@@ -311,11 +318,13 @@ const QADashboard = () => {
             </div>
           </div>
 
-          {/* CENTER PANEL: 3-WAY MATCH */}
+          {/* CENTER PANEL: 3-WAY MATCH - MOCK DATA BASED ON DOC TYPE */}
           <div className="qa-panel center">
             <div className="qa-panel-header">🧩 3-Way Handshake Protocol</div>
             
             <div className="qa-match-container">
+              
+              {/* Match 1 - ORDER DATA */}
               <div className="qa-match-section">
                 <h4>1. Order Data (Database)</h4>
                 <div className="qa-match-row">
@@ -347,11 +356,12 @@ const QADashboard = () => {
                   </>
                 )}
                 
-                <div className="qa-match-status pass">
+                <div className={`qa-match-status pass`}>
                   ✅ Matches PDF Evidence
                 </div>
               </div>
 
+              {/* Match 2 - MASTER RULE */}
               <div className="qa-match-section">
                 <h4>2. Master Rule (Admin SOP)</h4>
                 
@@ -379,11 +389,13 @@ const QADashboard = () => {
                   </>
                 )}
                 
+                {/* Always show Master SOP link with MOCK data */}
                 <div className="qa-link" onClick={handleViewMaster}>
                   🔗 View Master SOP (Admin Upload)
                 </div>
               </div>
 
+              {/* Match 3 - EVIDENCE CONTENT */}
               <div className="qa-match-section">
                 <h4>3. Evidence Content (AI Scan)</h4>
                 
@@ -423,10 +435,11 @@ const QADashboard = () => {
                   </div>
                 )}
               </div>
+
             </div>
           </div>
 
-          {/* RIGHT PANEL: DECISION */}
+          {/* RIGHT PANEL - DECISION (Same as before) */}
           <div className="qa-panel right">
             <div className="qa-panel-header">✍️ Final Decision</div>
             
@@ -461,20 +474,24 @@ const QADashboard = () => {
                 </div>
               ) : (
                 <div className="qa-actions">
-                  <button className="qa-btn reject" onClick={handleReject}>Reject</button>
-                  <button className="qa-btn primary" onClick={handleApprove}>Approve & Sign</button>
+                  <button className="qa-btn reject full" onClick={handleReject}>Reject</button>
+                  <button className="qa-btn approve full" onClick={handleApprove}>Approve & Sign</button>
                 </div>
               )}
             </div>
           </div>
+
         </div>
       </div>
     );
   };
 
+
+  // --- MASTER DOC MODAL ---
   const renderMasterModal = () => {
     if (!currentDoc) return null;
     
+    // Find master SOP for this product
     const masterSOP = masterSOPs.find(m => m.productId === currentDoc.productId && m.status === 'APPROVED');
 
     return (
@@ -493,6 +510,7 @@ const QADashboard = () => {
                 <h2 style={{textAlign: 'center', borderBottom: '1px solid #000'}}>STANDARD OPERATING PROCEDURE</h2>
                 
                 {masterSOP ? (
+                  // ACTUAL MASTER SOP FROM DATABASE
                   <div style={{margin: '20px 0'}}>
                     <p><strong>Title:</strong> {masterSOP.docType}</p>
                     <p><strong>File:</strong> {masterSOP.fileName}</p>
@@ -504,6 +522,7 @@ const QADashboard = () => {
                     </div>
                   </div>
                 ) : (
+                  // NO MASTER SOP FOUND
                   <div style={{margin: '20px 0', padding: '1rem', backgroundColor: '#fffacd', borderRadius: '4px'}}>
                     <p><strong>⚠️ No Master SOP Found</strong></p>
                     <p>No approved master SOP has been uploaded for this product/document type.</p>
@@ -534,221 +553,73 @@ const QADashboard = () => {
     );
   };
 
+
+  // --- MAIN RENDER ---
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+        /* FORCE FULL WIDTH */
+        * { box-sizing: border-box; }
+        body { margin: 0 !important; padding: 0 !important; overflow-x: hidden !important; }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { margin: 0 !important; padding: 0 !important; font-family: 'Poppins', sans-serif; overflow-x: hidden; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
         .qa-container {
-          display: flex;
+          font-family: 'Inter', sans-serif;
+          background-color: #f1f5f9;
           min-height: 100vh;
-          width: 100vw;
-          background: linear-gradient(180deg, #d8dcfc 0%, #f5f7fa 35%);
+          color: #0f172a;
+          box-sizing: border-box;
+          width: 100vw !important;
+          max-width: 100vw !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow-x: hidden;
         }
+        .qa-container * { box-sizing: border-box; }
 
-        .qa-sidebar {
-          width: 260px;
-          background: linear-gradient(180deg, #d8dcfc 0%, #f5f7fa 35%);
+        .qa-header {
+          background-color: #1e293b;
+          color: white;
+          padding: 0 2rem;
+          height: 60px;
           display: flex;
-          flex-direction: column;
-          position: fixed;
-          height: 100vh;
-          left: 0;
+          align-items: center;
+          justify-content: space-between;
+          position: sticky;
           top: 0;
           z-index: 100;
-          transition: transform 0.3s ease;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          width: 100% !important;
         }
+        .qa-brand { font-size: 1.2rem; font-weight: 700; letter-spacing: 0.05em; }
+        .qa-brand span { color: #38bdf8; } 
+        .qa-user { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; opacity: 0.9; }
+        .qa-avatar { width: 30px; height: 30px; background: #38bdf8; color: #0f172a; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-weight: 700; }
 
-        .qa-sidebar.closed { transform: translateX(-260px); }
+        .qa-main { max-width: none !important; width: 100% !important; margin: 0 !important; padding: 2rem !important; }
 
-        .qa-menu-toggle {
-          position: fixed;
-          top: 1rem;
-          left: 1rem;
-          z-index: 101;
-          background: #1a2332;
-          border: none;
-          color: white;
-          width: 44px;
-          height: 44px;
-          border-radius: 8px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 1.25rem;
-          transition: all 0.3s ease;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-        }
+        .qa-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
+        .qa-stat-card { background: white; padding: 1.2rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid transparent; display: flex; flex-direction: column; }
+        .qa-stat-card.red { border-left-color: #ef4444; }
+        .qa-stat-card.yellow { border-left-color: #f59e0b; }
+        .qa-stat-card.green { border-left-color: #10b981; }
+        .qa-stat-card.blue { border-left-color: #3b82f6; }
+        .qa-stat-label { font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; margin-bottom: 6px; }
+        .qa-stat-val { font-size: 1.8rem; font-weight: 700; color: #0f172a; line-height: 1; }
+        .qa-stat-val small { font-size: 1rem; font-weight: 500; color: #94a3b8; margin-left: 4px; }
 
-        .qa-menu-toggle:hover { background: #2a3442; transform: scale(1.05); }
-        .qa-menu-toggle.sidebar-open { left: 275px; }
+        .qa-section-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+        .qa-section-header h2 { margin: 0; font-size: 1.5rem; color: #334155; }
+        .qa-badge-count { background: #e2e8f0; padding: 0.2rem 0.8rem; border-radius: 99px; font-size: 0.85rem; font-weight: 600; color: #475569; }
 
-        .qa-sidebar-header { padding: 1.5rem 1.25rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-        .qa-logo { font-size: 1.25rem; font-weight: 700; color: #1f2937; }
-
-        .qa-nav { flex: 1; padding: 1rem 0; overflow-y: auto; }
-        .qa-nav-item {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          padding: 0.75rem 1.25rem;
-          color: rgba(8, 0, 45, 0.7);
-          cursor: pointer;
-          transition: all 0.2s;
-          font-size: 0.9rem;
-          border-left: 3px solid transparent;
-        }
-
-        .qa-nav-item:hover { background: rgba(255, 255, 255, 0.05); color: #713ed0; }
-        .qa-nav-item.active { background: rgba(59, 130, 246, 0.1); color: #00142d; border-left-color: #001230; }
-        .qa-nav-icon { font-size: 1.1rem; width: 20px; text-align: center; }
-
-        .qa-sidebar-footer { padding: 1.25rem; border-top: 1px solid rgba(255, 255, 255, 0.1); }
-        .qa-profile {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          cursor: pointer;
-          padding: 0.5rem;
-          border-radius: 6px;
-          transition: background 0.2s;
-        }
-
-        .qa-profile:hover { background: rgba(255, 255, 255, 0.05); }
-        .qa-profile-avatar {
-          width: 36px;
-          height: 36px;
-          background: linear-gradient(135deg, #1f2937, #1f2937);
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 600;
-          font-size: 0.9rem;
-        }
-
-        .qa-profile-name { font-size: 0.9rem; font-weight: 500; color: #1f2937; }
-        .qa-profile-role { font-size: 0.75rem; color: #1f2937; }
-
-        .qa-main {
-          flex: 1;
-          margin-left: 260px;
-          padding: 5rem 2rem 2rem 2rem;
-          transition: all 0.3s ease;
-          overflow-x: hidden;
-          min-height: 100vh;
-          box-sizing: border-box;
-          background: linear-gradient(180deg, #d8dcfc 0%, #f5f7fa 35%);
-        }
-
-        .qa-main.sidebar-closed { margin-left: 0; }
-
-        .qa-stats-section {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 1.5rem;
-          margin-bottom: 2rem;
-        }
-
-        .qa-stat-card {
-          padding: 1.75rem;
-          border-radius: 20px;
-          border: none;
-          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
-          transition: all 0.3s ease;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .qa-stat-card:hover { transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12); }
-        .qa-stat-card:nth-child(1) { background: linear-gradient(180deg, #fecaca 0%, #fef2f2 100%); }
-        .qa-stat-card:nth-child(2) { background: linear-gradient(180deg, #fed7aa 0%, #fef3c7 100%); }
-        .qa-stat-card:nth-child(3) { background: linear-gradient(180deg, #d1fae5 0%, #ecfdf5 100%); }
-        .qa-stat-card:nth-child(4) { background: linear-gradient(180deg, #dbeafe 0%, #eff6ff 100%); }
-
-        .qa-stat-icon-circle {
-          position: absolute;
-          top: 1.25rem;
-          right: 1.25rem;
-          width: 50px;
-          height: 50px;
-          border-radius: 50%;
-          background: rgba(255, 255, 255, 0.3);
-          backdrop-filter: blur(10px);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 1.5rem;
-          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-        }
-
-        .qa-stat-label {
-          font-size: 0.75rem;
-          color: #4a5568;
-          font-weight: 600;
-          margin-bottom: 0.75rem;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .qa-stat-value {
-          font-size: 2.5rem;
-          font-weight: 700;
-          color: #1a202c;
-          line-height: 1;
-          margin-bottom: 0.5rem;
-        }
-
-        .qa-card {
-          background: white;
-          border-radius: 16px;
-          border: none;
-          overflow: hidden;
-          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
-          transition: all 0.3s ease;
-          margin-bottom: 2rem;
-        }
-
-        .qa-card:hover { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1); }
-
-        .qa-card-header {
-          padding: 1rem 1.5rem;
-          border-bottom: 1px solid #f3f4f6;
-          background: #fafbfc;
-        }
-
-        .qa-card-header h3 { font-size: 1rem; font-weight: 600; color: #1f2937; margin: 0; }
-
-        .qa-card-body { padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
-
-        .qa-table-wrapper { overflow-x: auto; }
-        .qa-table { width: 100%; border-collapse: collapse; }
-        .qa-table th {
-          background: #f9fafb;
-          padding: 0.75rem 1rem;
-          text-align: left;
-          font-size: 0.8rem;
-          font-weight: 600;
-          color: #6b7280;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          border-bottom: 1px solid #e5e7eb;
-        }
-
-        .qa-table td {
-          padding: 1rem;
-          border-bottom: 1px solid #f3f4f6;
-          font-size: 0.9rem;
-          color: #1f2937;
-        }
-
-        .qa-table tbody tr { cursor: pointer; transition: background 0.2s; }
-        .qa-table tbody tr:hover { background: #f9fafb; }
-
+        .qa-card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; border: 1px solid #e2e8f0; }
+        .qa-table { width: 100%; border-collapse: collapse; text-align: left; }
+        .qa-table th { background: #f8fafc; padding: 1rem 1.5rem; font-size: 0.75rem; text-transform: uppercase; color: #64748b; border-bottom: 1px solid #e2e8f0; font-weight: 600; }
+        .qa-table td { padding: 1rem 1.5rem; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; color: #334155; vertical-align: middle; }
+        .qa-row-hover { cursor: pointer; transition: background 0.15s; }
+        .qa-row-hover:hover { background: #f8fafc; }
+        
         .qa-doc-name { font-weight: 600; color: #0f172a; }
         .qa-doc-sub { font-size: 0.8rem; color: #64748b; }
         .qa-ai-pill { display: inline-block; padding: 0.2rem 0.6rem; border: 1px solid; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
@@ -756,12 +627,37 @@ const QADashboard = () => {
         
         .align-right { text-align: right; }
         .text-gray { color: #94a3b8; font-size: 0.85rem; }
+        .qa-empty { text-align: center; padding: 3rem; color: #94a3b8; }
         .font-medium { font-weight: 500; }
 
-        .qa-workspace { padding: 0; }
-        .qa-ws-header { margin-bottom: 2rem; }
-        .qa-back-btn { background: none; border: none; color: #64748b; cursor: pointer; font-weight: 500; font-size: 0.9rem; margin-bottom: 0.5rem; }
+        .qa-workspace { height: 100%; display: flex; flex-direction: column; }
+        .qa-ws-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .qa-ws-title { display: flex; align-items: center; gap: 1rem; }
+        .qa-back-btn { background: none; border: none; color: #64748b; cursor: pointer; font-weight: 500; font-size: 0.9rem; }
+        .qa-ws-title h1 { margin: 0; font-size: 1.25rem; color: #0f172a; }
         .qa-meta { font-size: 0.85rem; color: #64748b; }
+        
+        .qa-secure-box { position: relative; cursor: help; }
+        .qa-secure-badge { background: #fff1f2; color: #be123c; border: 1px solid #fda4af; padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+        .qa-secure-tooltip {
+          visibility: hidden;
+          width: 250px;
+          background-color: #333;
+          color: #fff;
+          text-align: left;
+          border-radius: 6px;
+          padding: 10px;
+          position: absolute;
+          z-index: 1;
+          top: 125%;
+          right: 0;
+          opacity: 0;
+          transition: opacity 0.3s;
+          font-size: 0.75rem;
+          line-height: 1.4;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .qa-secure-box:hover .qa-secure-tooltip { visibility: visible; opacity: 1; }
 
         .qa-ws-grid { display: grid; grid-template-columns: 5fr 3fr 3fr; gap: 1.5rem; height: 100%; }
         
@@ -773,10 +669,13 @@ const QADashboard = () => {
         .pdf-action { cursor: pointer; transition: color 0.2s; }
         .pdf-action:hover { color: #38bdf8; }
         .pdf-content { flex: 1; padding: 2rem; overflow-y: auto; display: flex; justify-content: center; }
-        .pdf-page { background: white; width: 100%; max-width: 600px; height: 800px; box-shadow: 0 0 10px rgba(0,0,0,0.3); padding: 3rem; font-family: 'Times New Roman', serif; font-size: 0.9rem; position: relative; color : #000}
+        .pdf-page { background: white; width: 100%; max-width: 600px; height: 800px; box-shadow: 0 0 10px rgba(0,0,0,0.3); padding: 3rem; font-family: 'Times New Roman', serif; font-size: 0.9rem; position: relative; }
         .pdf-logo { font-weight: bold; font-size: 1.5rem; border-bottom: 2px solid black; margin-bottom: 1.5rem; padding-bottom: 0.5rem; }
         .pdf-row { margin-bottom: 0.5rem; }
         .pdf-row.highlight { background: #fef3c7; padding: 2px; } 
+        .pdf-table { margin: 1rem 0; }
+        .pdf-tr { display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding: 4px 0; font-size: 0.85rem; }
+        .pdf-tr.highlight { background: #dcfce7; } 
         .pdf-sign { margin-top: 3rem; font-family: 'Courier New', monospace; border-top: 1px solid #000; display: inline-block; padding-top: 0.5rem; width: 200px; }
 
         .qa-panel.center { padding: 0; overflow-y: auto; }
@@ -789,12 +688,15 @@ const QADashboard = () => {
         .qa-match-row .value.highlight { color: #16a34a; background: #dcfce7; padding: 0 4px; border-radius: 2px; }
         .qa-match-status { margin-top: 0.5rem; font-size: 0.8rem; font-weight: 600; padding: 0.4rem; border-radius: 4px; text-align: center; }
         .qa-match-status.pass { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+        .qa-match-status.fail { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
         
         .qa-link { color: #2563eb; font-size: 0.8rem; cursor: pointer; text-decoration: underline; margin-top: 0.5rem; font-weight: 600; }
+        .qa-no-link { font-size: 0.8rem; color: #94a3b8; font-style: italic; margin-top: 0.5rem; }
         
         .qa-check-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem; }
         .qa-mini-check { font-size: 0.7rem; text-align: center; padding: 0.3rem; border-radius: 4px; font-weight: 600; }
         .qa-mini-check.pass { background: #dcfce7; color: #166534; }
+        .qa-mini-check.fail { background: #fee2e2; color: #991b1b; }
 
         .qa-ai-summary { margin-top: 1rem; }
         .qa-label { display: block; font-size: 0.75rem; color: #64748b; margin-bottom: 4px; font-weight: 600; }
@@ -806,23 +708,23 @@ const QADashboard = () => {
 
         .qa-panel.right { padding: 1.5rem; display: flex; flex-direction: column; }
         .qa-form { flex: 1; display: flex; flex-direction: column; }
-        .qa-form label { display: block; margin-bottom: 0.5rem; font-weight: 600; font-size: 0.9rem; color: #334155; }
-        .qa-input { width: 100%; padding: 0.75rem 1rem; border: 1px solid #e5e7eb; border-radius: 10px; font-size: 0.9rem; transition: all 0.2s; background: #f9fafb; font-family: inherit; margin-bottom: 1rem; }
-        .qa-input:focus { outline: none; border-color: #667eea; background: white; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
+        .qa-input { width: 100%; padding: 0.8rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; margin-bottom: 1rem; font-family: inherit; }
+        .qa-input:focus { outline: none; border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1); }
         .qa-divider { height: 1px; background: #e2e8f0; margin: 1rem 0; }
         .qa-hint { font-size: 0.75rem; color: #64748b; margin: -0.5rem 0 0.8rem 0; }
         
-        .qa-sig-section { margin-bottom: 1.5rem; }
+        .qa-sig-section { margin-top: 2rem; margin-bottom: 1.5rem; }
+        .qa-sig-section label { display: block; margin-bottom: 0.5rem; font-weight: 600; font-size: 0.9rem; }
         
         .qa-actions { margin-top: auto; display: flex; gap: 10px; }
-        .qa-btn { padding: 0.75rem 1.5rem; border-radius: 12px; border: none; font-weight: 600; cursor: pointer; font-size: 0.9rem; transition: all 0.3s ease; flex: 1; }
-        .qa-btn.primary { background: linear-gradient(135deg, #000d45 0%, #000d45 100%); color: white; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3); }
-        .qa-btn.primary:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4); }
-        .qa-btn.reject { background: #ef4444; color: white; }
-        .qa-btn.reject:hover { background: #dc2626; }
-        .qa-btn.small { font-size: 0.8rem; padding: 0.4rem 0.8rem; flex: none; }
+        .qa-btn { padding: 0.6rem 1rem; border-radius: 6px; font-weight: 600; font-size: 0.85rem; cursor: pointer; border: none; transition: all 0.2s; }
         .qa-btn.secondary { background: white; border: 1px solid #cbd5e1; color: #334155; }
-        .qa-btn.secondary:hover { background: #f1f5f9; }
+        .qa-btn.secondary:hover { background: #f1f5f9; border-color: #94a3b8; }
+        .qa-btn.approve { background: #10b981; color: white; }
+        .qa-btn.approve:hover { background: #059669; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.3); }
+        .qa-btn.reject { background: #ef4444; color: white; }
+        .qa-btn.reject:hover { background: #dc2626; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.3); }
+        .qa-btn.full { flex: 1; }
 
         .qa-loader-box { margin-top: auto; text-align: center; padding: 1rem; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; }
         .qa-spinner { width: 20px; height: 20px; border: 3px solid #e2e8f0; border-top: 3px solid #38bdf8; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 0.5rem auto; }
@@ -843,50 +745,25 @@ const QADashboard = () => {
 
         @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .vd-animate-in { animation: fadeIn 0.3s ease-out forwards; }
 
-        @media (max-width: 768px) {
-          .qa-sidebar { transform: translateX(-260px); }
-          .qa-main { margin-left: 0; padding: 1rem; }
-          .qa-stats-section { grid-template-columns: 1fr; }
-          .qa-ws-grid { grid-template-columns: 1fr; }
+        @media (max-width: 1024px) {
+          .qa-ws-grid { grid-template-columns: 1fr 1fr; }
+          .qa-panel.left { grid-column: span 2; height: 400px; }
         }
       `}</style>
 
       <div className="qa-container">
-        <button 
-          className={`qa-menu-toggle ${sidebarOpen ? 'sidebar-open' : ''}`}
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-        >
-          {sidebarOpen ? '✕' : '☰'}
-        </button>
-
-        <div className={`qa-sidebar ${!sidebarOpen ? 'closed' : ''}`}>
-          <div className="qa-sidebar-header">
-            <div className="qa-logo">MedSupply QA</div>
+        <header className="qa-header">
+          <div className="qa-brand">PharmaOps <span>QA</span></div>
+          <div className="qa-user">
+            <span>Dr. Pulashya Verma (QA Lead)</span>
+            <div className="qa-avatar">P</div>
           </div>
+        </header>
 
-          <nav className="qa-nav">
-            <div 
-              className={`qa-nav-item ${currentPage === 'queue' ? 'active' : ''}`}
-              onClick={() => setCurrentPage('queue')}
-            >
-              <span className="qa-nav-icon"></span>
-              <span>Review Queue</span>
-            </div>
-          </nav>
-
-          <div className="qa-sidebar-footer">
-            <div className="qa-profile">
-              <div className="qa-profile-avatar">P</div>
-              <div>
-                <div className="qa-profile-name">Dr. Pulashya Verma</div>
-                <div className="qa-profile-role">QA Lead</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <main className={`qa-main ${!sidebarOpen ? 'sidebar-closed' : ''}`}>
+        <main className="qa-main">
           {selectedDoc ? renderWorkspace() : renderQueue()}
         </main>
 

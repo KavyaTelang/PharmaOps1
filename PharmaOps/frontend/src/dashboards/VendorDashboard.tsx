@@ -6,11 +6,21 @@ const VendorDashboard = () => {
   // ===== USE CONTEXT =====
   const { user } = useAppContext();
   
+  // Navigation state
+  const [currentPage, setCurrentPage] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  
   // ===== REAL DATA FROM BACKEND =====
   const [vendors, setVendors] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // ===== LOCAL STATE =====
+  const [shipmentModalOpen, setShipmentModalOpen] = useState<string | null>(null);
+  const [trackingInput, setTrackingInput] = useState('');
+  const [courierInput, setCourierInput] = useState('');
+  const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
 
   // Load data on mount
   useEffect(() => {
@@ -20,13 +30,11 @@ const VendorDashboard = () => {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      // Load vendor's profile and orders
       const [profileData, ordersData] = await Promise.all([
         api.getMyProfile().catch(() => ({ vendor: null })),
         api.getMyOrders().catch(() => ({ orders: [] })),
       ]);
       
-      // Set vendor profile as the only vendor
       if (profileData.vendor) {
         setVendors([profileData.vendor]);
         setSelectedVendorId(profileData.vendor.id);
@@ -43,12 +51,6 @@ const VendorDashboard = () => {
     }
   };
 
-  // ===== LOCAL STATE =====
-  const [shipmentModalOpen, setShipmentModalOpen] = useState<string | null>(null);
-  const [trackingInput, setTrackingInput] = useState('');
-  const [courierInput, setCourierInput] = useState('');
-  const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
-
   // ===== AUTO-SELECT FIRST VENDOR =====
   useEffect(() => {
     if (vendors.length > 0 && !selectedVendorId) {
@@ -56,34 +58,34 @@ const VendorDashboard = () => {
     }
   }, [vendors, selectedVendorId]);
 
-  // Get current vendor
   const currentVendor = vendors.find(v => v.id === selectedVendorId);
-  
-  // Filter orders for this vendor
   const vendorOrders = orders.filter(o => o.vendorId === selectedVendorId);
 
-  // ===== HELPER: Get Product by ID =====
   const getProductById = (order: any) => {
-    // First check if product name is in the order itself
     if (order.productName) return order.productName;
-    // Fallback to looking in products array
     const product = products.find(p => p.id === order.productId);
     return product?.name || 'Unknown Product';
   };
 
-  // ===== COMPUTED STATS =====
   const stats = {
     newRequests: vendorOrders.filter(o => o.status === 'REQUESTED').length,
     actionRequired: vendorOrders.flatMap(o => o.requirements || []).filter(r => r.status === 'MISSING').length,
     readyToShip: vendorOrders.filter(o => o.status === 'READY_TO_SHIP').length,
+    totalOrders: vendorOrders.length,
   };
 
-  // ===== HANDLERS (updated to use real API) =====
+  // ===== HANDLERS =====
   const handleAcceptInvitation = async () => {
     if (!selectedVendorId) return;
     
     try {
       await api.acceptInvitation();
+      await api.logAction({
+      action: 'INVITATION_ACCEPTED',
+      entityType: 'VENDOR_PROFILE',
+      details: 'Vendor accepted partnership invitation',
+      changes: { status: 'ACCEPTED' },
+    }).catch(err => console.log('Audit log failed:', err));
       alert(`✅ Partnership accepted! You can now receive orders.`);
       await loadAllData();
     } catch (error) {
@@ -95,7 +97,15 @@ const VendorDashboard = () => {
   const handleAcceptOrder = async (orderId: string) => {
     try {
       await api.acceptOrder(orderId);
-      
+
+      await api.logAction({
+      action: 'ORDER_ACCEPTED',
+      entityType: 'ORDER',
+      entityId: orderId,
+      details: `Vendor accepted order`,
+      changes: { status: 'ACCEPTED' },
+    }).catch(err => console.log('Audit log failed:', err));
+
       const order = orders.find(o => o.id === orderId);
       alert(`✅ Order ${order?.orderNumber} accepted! Compliance checklist generated.`);
       await loadAllData();
@@ -119,6 +129,14 @@ const VendorDashboard = () => {
             docType,
             fileName: file.name,
           });
+
+          await api.logAction({
+          action: 'DOCUMENT_UPLOADED',
+          entityType: 'DOCUMENT',
+          entityId: orderId,
+          details: `Vendor uploaded ${docType} document: ${file.name}`,
+          changes: { fileName: file.name, docType: docType },
+        }).catch(err => console.log('Audit log failed:', err));
           
           alert(`✅ Document uploaded: ${file.name}\nSent to QA for review.`);
           await loadAllData();
@@ -145,6 +163,14 @@ const VendorDashboard = () => {
         courier: courierInput,
       });
       
+      await api.logAction({
+      action: 'SHIPMENT_CREATED',
+      entityType: 'SHIPMENT',
+      entityId: shipmentModalOpen,
+      details: `Vendor created shipment via ${courierInput} with tracking ${trackingInput}`,
+      changes: { trackingNumber: trackingInput, courier: courierInput },
+    }).catch(err => console.log('Audit log failed:', err));
+
       const order = orders.find(o => o.id === shipmentModalOpen);
       alert(`✅ Shipment created for Order ${order?.orderNumber}!\nTracking: ${trackingInput}`);
       
@@ -159,7 +185,6 @@ const VendorDashboard = () => {
     }
   };
 
-  // ===== HELPERS =====
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'APPROVED': return '#10b981'; 
@@ -178,148 +203,6 @@ const VendorDashboard = () => {
     }
   };
 
-  // ===== SUB-COMPONENTS =====
-  const renderInvitationNotice = () => {
-    if (!currentVendor || currentVendor.status !== 'INVITED') return null;
-
-    return (
-      <div className="vd-card vd-animate-in" style={{background: '#fef3c7', borderLeft: '4px solid #f59e0b', marginBottom: '2rem'}}>
-        <div style={{padding: '1.5rem'}}>
-          <h3 style={{margin: '0 0 0.5rem 0', color: '#92400e'}}>🎉 Partnership Invitation</h3>
-          <p style={{margin: '0 0 1rem 0', color: '#78350f'}}>
-            You have been invited to join the PharmaOps platform. Accept to start receiving orders.
-          </p>
-          <button onClick={handleAcceptInvitation} className="vd-btn primary">
-            Accept Partnership
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  const renderIncomingRequests = () => {
-    const requested = vendorOrders.filter(o => o.status === 'REQUESTED');
-    if (requested.length === 0) return <div className="vd-empty">No new requests.</div>;
-
-    return (
-      <div className="vd-card vd-animate-in">
-        <table className="vd-table">
-          <thead>
-            <tr>
-              <th>Order #</th>
-              <th>Product</th>
-              <th>Qty</th>
-              <th>Destination</th>
-              <th className="align-right">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {requested.map(order => {
-              const productName = getProductById(order);
-              return (
-                <tr key={order.id} className="vd-table-row-hover">
-                  <td className="font-medium">{order.orderNumber}</td>
-                  <td>{productName}</td>
-                  <td>{order.quantity.toLocaleString()}</td>
-                  <td>{order.destination}</td>
-                  <td className="align-right">
-                    <button onClick={() => handleAcceptOrder(order.id)} className="vd-btn primary">
-                      Accept Order
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-
-  const renderComplianceList = () => {
-    const activeOrders = vendorOrders.filter(o => o.status === 'DOCS_PENDING' || o.status === 'READY_TO_SHIP');
-    
-    if (activeOrders.length === 0) return <div className="vd-empty">No active compliance tasks.</div>;
-
-    return (
-      <div className="vd-compliance-section">
-        {activeOrders.map(order => {
-          const productName = getProductById(order);
-          const requirements = order.requirements || [];
-          const totalReqs = requirements.length;
-          const approvedReqs = requirements.filter(r => r.status === 'APPROVED').length;
-          const progress = totalReqs > 0 ? Math.round((approvedReqs / totalReqs) * 100) : 0;
-          const isReady = order.status === 'READY_TO_SHIP';
-
-          return (
-            <div key={order.id} className={`vd-card vd-todo-item vd-animate-in ${isReady ? 'ready-border' : ''}`}>
-              <div className="vd-todo-header">
-                <div>
-                  <div className="vd-order-id">
-                    {order.orderNumber} 
-                    <span className="vd-badge-count">{productName}</span>
-                  </div>
-                  <div className="vd-order-meta">
-                    <span className="meta-label">Dest:</span> {order.destination} &nbsp;|&nbsp; 
-                    <span className="meta-label">Qty:</span> {order.quantity.toLocaleString()}
-                  </div>
-                  <div className="vd-progress-container">
-                    <div className="vd-progress-bar">
-                      <div className="vd-progress-fill" style={{ width: `${progress}%` }}></div>
-                    </div>
-                    <span className="vd-progress-text">{progress}% Compliant</span>
-                  </div>
-                </div>
-                <div className="action-container">
-                  <button 
-                    className={`vd-btn ${isReady ? 'primary' : 'disabled'}`}
-                    disabled={!isReady}
-                    onClick={() => isReady && setShipmentModalOpen(order.id)}
-                  >
-                    {isReady ? '🚚 Ship Order' : `Wait for QA (${approvedReqs}/${totalReqs})`}
-                  </button>
-                </div>
-              </div>
-
-              <div className="vd-req-list">
-                {requirements.map(req => (
-                  <div key={req.id} className="vd-req-row">
-                    <div className="vd-req-info">
-                      <span className="vd-req-status-icon" style={{ color: getStatusColor(req.status) }}>
-                        {getStatusIcon(req.status)}
-                      </span>
-                      <div>
-                        <div className="req-title-row">
-                          <span className="vd-req-name">{req.docType}</span>
-                          <span className={`vd-req-tag ${req.category === 'MASTER' ? 'master' : 'trans'}`}>
-                            {req.category}
-                          </span>
-                        </div>
-                        {req.expiryDate && (
-                          <div className="vd-req-expiry">Valid until: {req.expiryDate}</div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="vd-req-action">
-                      {req.status === 'MISSING' && (
-                        <button onClick={() => handleUpload(order.id, req.docType)} className="vd-btn upload small">
-                          📎 Upload PDF
-                        </button>
-                      )}
-                      {req.status === 'PENDING_REVIEW' && <span className="vd-status-pill pending">QA Reviewing</span>}
-                      {req.status === 'APPROVED' && <span className="vd-status-pill approved">Verified ✓</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  // Show loading state
   if (loading) {
     return (
       <div style={{ padding: '2rem', textAlign: 'center', background: 'white', minHeight: '100vh' }}>
@@ -328,258 +211,583 @@ const VendorDashboard = () => {
     );
   }
 
-  // If no vendor exists or not accepted, show limited view
   if (!currentVendor) {
     return (
-      <div className="vd-container">
-        <header className="vd-header">
-          <div className="vd-brand">
-            <h1>PharmaOps <span>Vendor</span></h1>
-          </div>
-        </header>
-        <main className="vd-main">
-          <div className="vd-empty" style={{marginTop: '3rem'}}>
-            No vendor profile found. Admin needs to invite you first.
-          </div>
-        </main>
+      <div style={{ padding: '2rem', textAlign: 'center', background: 'white', minHeight: '100vh' }}>
+        <h2>No vendor profile found. Admin needs to invite you first.</h2>
       </div>
     );
   }
 
+  const renderDashboard = () => (
+    <>
+      {/* Invitation Notice */}
+      {currentVendor.status === 'INVITED' && (
+        <div className="invitation-banner">
+          <h3>🎉 Partnership Invitation</h3>
+          <p>You have been invited to join the PharmaOps platform. Accept to start receiving orders.</p>
+          <button onClick={handleAcceptInvitation} className="vd-btn primary">
+            Accept Partnership
+          </button>
+        </div>
+      )}
+
+      {/* Stats Section */}
+      <div className="vd-stats-section">
+        <div className="vd-stat-card">
+          <div className="vd-stat-icon-circle">
+            <img src="new-requests.png" alt="icon" style={{width: '40px', height: '35px'}} />
+          </div>
+          <div className="vd-stat-label">New Requests</div>
+          <div className="vd-stat-value">{stats.newRequests}</div>
+        </div>
+        <div className="vd-stat-card">
+          <div className="vd-stat-icon-circle">
+            <img src="action-required.png" alt="icon" style={{width: '40px', height: '40px'}} />
+          </div>
+          <div className="vd-stat-label">Action Required</div>
+          <div className="vd-stat-value">{stats.actionRequired}</div>
+        </div>
+        <div className="vd-stat-card">
+          <div className="vd-stat-icon-circle">
+            <img src="shipping.png" alt="icon" style={{width: '45px', height: '45px'}} />
+          </div>
+          <div className="vd-stat-label">Ready to Ship</div>
+          <div className="vd-stat-value">{stats.readyToShip}</div>
+        </div>
+        <div className="vd-stat-card">
+          <div className="vd-stat-icon-circle">
+            <img src="total-orders-vendor.png" alt="icon" style={{width: '40px', height: '40px'}} />
+          </div>
+          <div className="vd-stat-label">Total Orders</div>
+          <div className="vd-stat-value">{stats.totalOrders}</div>
+        </div>
+      </div>
+
+      {/* Incoming Requests */}
+      <div className="vd-card">
+        <div className="vd-card-header">
+          <h3>📋 Incoming Requests</h3>
+        </div>
+        <div className="vd-table-wrapper">
+          <table className="vd-table">
+            <thead>
+              <tr>
+                <th>Order #</th>
+                <th>Product</th>
+                <th>Qty</th>
+                <th>Destination</th>
+                <th className="align-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vendorOrders.filter(o => o.status === 'REQUESTED').map(order => (
+                <tr key={order.id}>
+                  <td className="font-medium">{order.orderNumber}</td>
+                  <td>{getProductById(order)}</td>
+                  <td>{order.quantity.toLocaleString()}</td>
+                  <td>{order.destination}</td>
+                  <td className="align-right">
+                    <button onClick={() => handleAcceptOrder(order.id)} className="vd-btn primary small">
+                      Accept Order
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {vendorOrders.filter(o => o.status === 'REQUESTED').length === 0 && (
+                <tr><td colSpan={5} style={{textAlign: 'center', padding: '2rem', color: '#9ca3af'}}>No new requests</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+
+  const renderOrders = () => {
+    const activeOrders = vendorOrders.filter(o => o.status === 'DOCS_PENDING' || o.status === 'READY_TO_SHIP');
+    
+    return (
+      <>
+        <div className="vd-page-header">
+          <h2>Compliance & Shipping Tasks</h2>
+        </div>
+
+        {activeOrders.map(order => {
+          const productName = getProductById(order);
+          const requirements = order.requirements || [];
+          const totalReqs = requirements.length;
+          const approvedReqs = requirements.filter((r: any) => r.status === 'APPROVED').length;
+          const progress = totalReqs > 0 ? Math.round((approvedReqs / totalReqs) * 100) : 0;
+          const isReady = order.status === 'READY_TO_SHIP';
+
+          return (
+            <div key={order.id} className={`vd-card ${isReady ? 'ready-border' : ''}`} style={{marginBottom: '1.5rem'}}>
+              <div className="vd-card-header" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                <div>
+                  <h3>{order.orderNumber} - {productName}</h3>
+                  <div style={{fontSize: '0.85rem', color: '#64748b', marginTop: '0.25rem'}}>
+                    Dest: {order.destination} | Qty: {order.quantity.toLocaleString()}
+                  </div>
+                </div>
+                <button 
+                  className={`vd-btn ${isReady ? 'primary' : 'disabled'}`}
+                  disabled={!isReady}
+                  onClick={() => isReady && setShipmentModalOpen(order.id)}
+                >
+                  {isReady ? '🚚 Ship Order' : `Wait for QA (${approvedReqs}/${totalReqs})`}
+                </button>
+              </div>
+              
+              <div className="vd-card-body">
+                <div className="vd-progress-container">
+                  <div className="vd-progress-bar">
+                    <div className="vd-progress-fill" style={{ width: `${progress}%` }}></div>
+                  </div>
+                  <span className="vd-progress-text">{progress}% Compliant</span>
+                </div>
+
+                <div style={{marginTop: '1rem'}}>
+                  {requirements.map((req: any) => (
+                    <div key={req.id} className="vd-req-row">
+                      <div style={{display: 'flex', alignItems: 'center', gap: '12px', flex: 1}}>
+                        <span style={{ color: getStatusColor(req.status), fontSize: '1.1rem' }}>
+                          {getStatusIcon(req.status)}
+                        </span>
+                        <div>
+                          <div className="req-title-row">
+                            <span className="vd-req-name">{req.docType}</span>
+                            <span className={`vd-req-tag ${req.category === 'MASTER' ? 'master' : 'trans'}`}>
+                              {req.category}
+                            </span>
+                          </div>
+                          {req.expiryDate && (
+                            <div style={{fontSize: '0.75rem', color: '#64748b'}}>Valid until: {req.expiryDate}</div>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        {req.status === 'MISSING' && (
+                          <button onClick={() => handleUpload(order.id, req.docType)} className="vd-btn upload small">
+                            📎 Upload PDF
+                          </button>
+                        )}
+                        {req.status === 'PENDING_REVIEW' && <span className="vd-status-pill pending">QA Reviewing</span>}
+                        {req.status === 'APPROVED' && <span className="vd-status-pill approved">Verified ✓</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {activeOrders.length === 0 && (
+          <div className="vd-card">
+            <div className="vd-card-body" style={{padding: '3rem', textAlign: 'center', color: '#9ca3af'}}>
+              No active compliance tasks
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
+
   return (
     <>
       <style>{`
-        /* FORCE FULL WIDTH */
-        * { box-sizing: border-box; }
-        body { margin: 0 !important; padding: 0 !important; overflow-x: hidden !important; }
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
 
-        /* Reset & Base */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { margin: 0 !important; padding: 0 !important; font-family: 'Poppins', sans-serif; overflow-x: hidden; }
 
         .vd-container {
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-          background-color: #f8fafc;
+          display: flex;
           min-height: 100vh;
-          color: #1e293b;
-          width: 100vw !important;
-          max-width: 100vw !important;
-          margin: 0 !important;
-          padding: 0 !important;
+          width: 100vw;
+          background: linear-gradient(180deg, #d8dcfc 0%, #f5f7fa 35%);
         }
 
-        .vd-container * { box-sizing: border-box; }
+        .vd-sidebar {
+          width: 260px;
+          background: linear-gradient(180deg, #d8dcfc 0%, #f5f7fa 35%);
+          color: white;
+          display: flex;
+          flex-direction: column;
+          position: fixed;
+          height: 100vh;
+          left: 0;
+          top: 0;
+          z-index: 100;
+          transition: transform 0.3s ease;
+        }
 
-        /* Header */
-        .vd-header {
-          background-color: #ffffff;
-          border-bottom: 1px solid #e2e8f0;
-          padding: 0 2rem;
-          height: 70px;
+        .vd-sidebar.closed { transform: translateX(-260px); }
+
+        .vd-menu-toggle {
+          position: fixed;
+          top: 1rem;
+          left: 1rem;
+          z-index: 101;
+          background: #1a2332;
+          border: none;
+          color: white;
+          width: 44px;
+          height: 44px;
+          border-radius: 8px;
+          cursor: pointer;
           display: flex;
           align-items: center;
-          justify-content: space-between;
-          position: sticky;
-          top: 0;
-          z-index: 50;
-          box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-          width: 100% !important;
+          justify-content: center;
+          font-size: 1.25rem;
+          transition: all 0.3s ease;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
         }
 
-        .vd-brand h1 { font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0; letter-spacing: -0.025em; }
-        .vd-brand span { color: #059669; }
+        .vd-menu-toggle:hover { background: #2a3442; transform: scale(1.05); }
+        .vd-menu-toggle.sidebar-open { left: 275px; }
 
-        .vd-user-profile { display: flex; align-items: center; gap: 12px; font-size: 0.875rem; font-weight: 500; color: #64748b; }
-        .vd-avatar { width: 36px; height: 36px; background-color: #ecfdf5; color: #059669; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1rem; border: 1px solid #d1fae5; }
+        .vd-sidebar-header { padding: 1.5rem 1.25rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+        .vd-logo { font-size: 1.25rem; font-weight: 700; color: #1f2937; }
 
-        /* Main Layout - FULL WIDTH */
-        .vd-main { 
-          max-width: none !important; 
-          width: 100% !important; 
-          margin: 0 !important; 
-          padding: 2.5rem 2rem !important; 
+        .vd-nav { flex: 1; padding: 1rem 0; overflow-y: auto; }
+        .vd-nav-item {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          padding: 0.75rem 1.25rem;
+          color: rgba(8, 0, 45, 0.7);
+          cursor: pointer;
+          transition: all 0.2s;
+          font-size: 0.9rem;
+          border-left: 3px solid transparent;
         }
 
-        /* Stats Grid */
-        .vd-stats-grid { 
-          display: grid; 
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); 
-          gap: 1.5rem; 
-          margin-bottom: 3rem; 
+        .vd-nav-item:hover { background: rgba(255, 255, 255, 0.05); color: #713ed0; }
+        .vd-nav-item.active { background: rgba(59, 130, 246, 0.1); color: #00142d; border-left-color: #001230; }
+        .vd-nav-icon { font-size: 1.1rem; width: 20px; text-align: center; }
+
+        .vd-sidebar-footer { padding: 1.25rem; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+        .vd-profile {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          cursor: pointer;
+          padding: 0.5rem;
+          border-radius: 6px;
+          transition: background 0.2s;
         }
-        
-        .vd-stat-card { 
-          background: white;
-          padding: 1.5rem; 
-          border-radius: 16px; 
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); 
-          border: 1px solid #e2e8f0; 
-          transition: transform 0.2s, box-shadow 0.2s;
-          display: flex; 
-          flex-direction: column;
-          color: #1e293b;
+
+        .vd-profile:hover { background: rgba(255, 255, 255, 0.05); }
+        .vd-profile-avatar {
+          width: 36px;
+          height: 36px;
+          background: linear-gradient(135deg, #1f2937, #1f2937);
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 600;
+          font-size: 0.9rem;
+        }
+
+        .vd-profile-name { font-size: 0.9rem; font-weight: 500; color: #1f2937; }
+        .vd-profile-role { font-size: 0.75rem; color: #1f2937; }
+
+        .vd-main {
+          flex: 1;
+          margin-left: 260px;
+          padding: 5rem 2rem 2rem 2rem;
+          transition: all 0.3s ease;
+          overflow-x: hidden;
+          min-height: 100vh;
+          box-sizing: border-box;
+          background: linear-gradient(180deg, #d8dcfc 0%, #f5f7fa 35%);
+        }
+
+        .vd-main.sidebar-closed { margin-left: 0; }
+
+        .vd-page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+        .vd-page-header h2 { font-size: 1.75rem; font-weight: 600; color: #1f2937; }
+
+        .vd-stats-section {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 1.5rem;
+          margin-bottom: 2rem;
+        }
+
+        .vd-stat-card {
+          padding: 1.75rem;
+          border-radius: 20px;
+          border: none;
+          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+          transition: all 0.3s ease;
           position: relative;
           overflow: hidden;
         }
-        .vd-stat-card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
-        
-        /* Left Border Indicators */
-        .vd-stat-card.yellow { border-left: 5px solid #f59e0b; }
-        .vd-stat-card.red { border-left: 5px solid #ef4444; }
-        .vd-stat-card.green { border-left: 5px solid #10b981; }
 
-        .vd-stat-title { 
-          font-size: 0.75rem; 
-          font-weight: 600; 
-          color: #64748b; 
-          text-transform: uppercase; 
-          letter-spacing: 0.05em; 
-          margin-bottom: 8px; 
+        .vd-stat-card:hover { transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12); }
+        .vd-stat-card:nth-child(1) { background: linear-gradient(180deg, #e7f9d6 0%, #f3f6f0 100%); }
+        .vd-stat-card:nth-child(2) { background: linear-gradient(180deg, #c9eaf7 0%, #e5f6fe 100%); }
+        .vd-stat-card:nth-child(3) { background: linear-gradient(180deg, #daddf7 0%, #f3f4fd 100%); }
+        .vd-stat-card:nth-child(4) { background: linear-gradient(180deg, #f5d5e1 0%, #f3eef0 100%); }
+
+        .vd-stat-icon-circle {
+          position: absolute;
+          top: 1.25rem;
+          right: 1.25rem;
+          width: 50px;
+          height: 50px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.3);
+          backdrop-filter: blur(10px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.5rem;
+          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
         }
-        
-        .vd-stat-value { 
-          font-size: 2.5rem; 
-          font-weight: 800; 
-          line-height: 1; 
+
+        .vd-stat-label {
+          font-size: 0.75rem;
+          color: #4a5568;
+          font-weight: 600;
+          margin-bottom: 0.75rem;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
         }
 
-        /* Colored Values */
-        .vd-stat-card.yellow .vd-stat-value { color: #d97706; }
-        .vd-stat-card.red .vd-stat-value { color: #dc2626; }
-        .vd-stat-card.green .vd-stat-value { color: #059669; }
+        .vd-stat-value {
+          font-size: 2.5rem;
+          font-weight: 700;
+          color: #1a202c;
+          line-height: 1;
+          margin-bottom: 0.5rem;
+        }
 
-        /* Section Headers */
-        .vd-section-title { font-size: 1.125rem; font-weight: 700; color: #334155; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem; }
-        .vd-badge-count { background: #f1f5f9; color: #475569; font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 99px; border: 1px solid #e2e8f0; }
+        .vd-card {
+          background: white;
+          border-radius: 16px;
+          border: none;
+          overflow: hidden;
+          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+          transition: all 0.3s ease;
+          margin-bottom: 2rem;
+        }
 
-        /* Tables */
-        .vd-card { background: white; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02); border: 1px solid #e2e8f0; overflow: hidden; margin-bottom: 2.5rem; }
-        .vd-table { width: 100%; border-collapse: collapse; text-align: left; }
-        .vd-table th { background-color: #f8fafc; padding: 1rem 1.5rem; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: #64748b; border-bottom: 1px solid #e2e8f0; letter-spacing: 0.05em; }
-        .vd-table td { padding: 1.25rem 1.5rem; border-bottom: 1px solid #e2e8f0; color: #334155; font-size: 0.9rem; vertical-align: middle; }
-        .vd-table tr:last-child td { border-bottom: none; }
-        .vd-table-row-hover:hover { background-color: #f8fafc; }
-        
-        /* Alignment Classes */
-        .align-right { text-align: right !important; }
-        .font-medium { font-weight: 500; color: #0f172a; }
+        .vd-card:hover { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1); }
+        .vd-card.ready-border { border-left: 4px solid #10b981; }
 
-        /* Compliance Item */
-        .vd-todo-item { padding: 1.5rem; border-bottom: 1px solid #e2e8f0; }
-        .vd-todo-item.ready-border { border-left: 4px solid #10b981; } 
-        
-        .vd-todo-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; }
-        .vd-order-id { font-weight: 700; font-size: 1.125rem; color: #0f172a; margin-bottom: 4px; }
-        .vd-order-meta { font-size: 0.875rem; color: #64748b; }
-        .meta-label { font-weight: 600; }
-        
+        .vd-card-header {
+          padding: 1rem 1.5rem;
+          border-bottom: 1px solid #f3f4f6;
+          background: #fafbfc;
+        }
+
+        .vd-card-header h3 { font-size: 1rem; font-weight: 600; color: #1f2937; margin: 0; }
+
+        .vd-card-body { padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+
+        .vd-table-wrapper { overflow-x: auto; }
+        .vd-table { width: 100%; border-collapse: collapse; }
+        .vd-table th {
+          background: #f9fafb;
+          padding: 0.75rem 1rem;
+          text-align: left;
+          font-size: 0.8rem;
+          font-weight: 600;
+          color: #6b7280;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          border-bottom: 1px solid #e5e7eb;
+        }
+
+        .vd-table td {
+          padding: 1rem;
+          border-bottom: 1px solid #f3f4f6;
+          font-size: 0.9rem;
+          color: #1f2937;
+        }
+
+        .vd-table tbody tr { cursor: pointer; transition: background 0.2s; }
+        .vd-table tbody tr:hover { background: #f9fafb; }
+
+        .align-right { text-align: right; }
+        .font-medium { font-weight: 500; }
+
+        .vd-btn {
+          padding: 0.75rem 1.5rem;
+          border-radius: 12px;
+          border: none;
+          font-weight: 600;
+          cursor: pointer;
+          font-size: 0.9rem;
+          transition: all 0.3s ease;
+        }
+
+        .vd-btn.primary {
+          background: linear-gradient(135deg, #000d45 0%, #000d45 100%);
+          color: white;
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .vd-btn.primary:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4); }
+        .vd-btn.small { font-size: 0.8rem; padding: 0.4rem 0.8rem; }
+        .vd-btn.disabled { opacity: 0.5; cursor: not-allowed; background: #94a3b8; }
+        .vd-btn.upload {
+          background: white;
+          border: 1px solid #cbd5e1;
+          color: #334155;
+        }
+
+        .vd-btn.upload:hover { background: #f1f5f9; }
+
         .vd-progress-container { display: flex; align-items: center; gap: 10px; margin-top: 0.75rem; }
-        .vd-progress-bar { height: 6px; background-color: #e2e8f0; border-radius: 3px; overflow: hidden; width: 140px; }
+        .vd-progress-bar { height: 6px; background-color: #e2e8f0; border-radius: 3px; overflow: hidden; flex: 1; }
         .vd-progress-fill { height: 100%; background-color: #059669; transition: width 0.5s ease-out; }
         .vd-progress-text { font-size: 0.75rem; font-weight: 600; color: #059669; }
 
-        /* Requirement List */
-        .vd-req-list { background-color: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; }
-        .vd-req-row { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid #e2e8f0; }
-        .vd-req-row:last-child { border-bottom: none; }
-        
-        .vd-req-info { display: flex; align-items: flex-start; gap: 12px; }
-        .vd-req-status-icon { font-size: 1.1rem; margin-top: 2px; }
+        .vd-req-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0.875rem 1rem;
+          background: #f8fafc;
+          border-radius: 8px;
+          margin-bottom: 0.5rem;
+        }
+
         .req-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
         .vd-req-name { font-weight: 600; color: #334155; font-size: 0.9rem; }
-        .vd-req-tag { font-size: 0.65rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.025em; }
+        .vd-req-tag {
+          font-size: 0.65rem;
+          padding: 0.15rem 0.5rem;
+          border-radius: 4px;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+
         .vd-req-tag.master { background-color: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
         .vd-req-tag.trans { background-color: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff; }
-        .vd-req-expiry { font-size: 0.75rem; color: #64748b; margin-left: 0; }
 
-        /* Status Pills */
-        .vd-status-pill { display: inline-flex; align-items: center; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+        .vd-status-pill {
+          display: inline-flex;
+          align-items: center;
+          padding: 0.25rem 0.75rem;
+          border-radius: 9999px;
+          font-size: 0.75rem;
+          font-weight: 600;
+        }
+
         .vd-status-pill.pending { background-color: #fffbeb; color: #b45309; border: 1px solid #fcd34d; }
         .vd-status-pill.approved { background-color: #dcfce7; color: #15803d; border: 1px solid #86efac; }
 
-        /* Buttons */
-        .vd-btn { padding: 0.625rem 1.25rem; border-radius: 8px; font-size: 0.875rem; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-        .vd-btn.small { padding: 0.4rem 0.9rem; font-size: 0.8rem; }
-        .vd-btn.primary { background-color: #059669; color: white; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
-        .vd-btn.primary:hover { background-color: #047857; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
-        .vd-btn.upload { background-color: white; border: 1px solid #cbd5e1; color: #334155; }
-        .vd-btn.upload:hover { background-color: #f1f5f9; border-color: #94a3b8; color: #0f172a; }
-        .vd-btn.disabled { background-color: #f1f5f9; color: #94a3b8; cursor: not-allowed; border: 1px solid #e2e8f0; }
+        .invitation-banner {
+          background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%);
+          padding: 1.5rem;
+          border-radius: 16px;
+          border-left: 4px solid #f59e0b;
+          margin-bottom: 2rem;
+          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+        }
 
-        /* Empty State */
-        .vd-empty { text-align: center; padding: 3rem; color: #94a3b8; font-style: italic; background: white; border-radius: 12px; border: 1px dashed #e2e8f0; }
+        .invitation-banner h3 { margin: 0 0 0.5rem 0; color: #92400e; }
+        .invitation-banner p { margin: 0 0 1rem 0; color: #78350f; }
 
-        /* Shipment Modal */
-        .vd-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.4); display: flex; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); }
-        .vd-modal { background: white; padding: 2rem; border-radius: 16px; width: 100%; max-width: 420px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e2e8f0; }
+        .vd-modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 200;
+          backdrop-filter: blur(3px);
+        }
+
+        .vd-modal {
+          background: white;
+          padding: 2rem;
+          border-radius: 16px;
+          width: 100%;
+          max-width: 420px;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+
         .vd-modal h3 { margin-top: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700; }
-        .vd-input { width: 100%; padding: 0.75rem 1rem; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 1rem; font-size: 0.9rem; transition: border-color 0.2s; }
+        .vd-input {
+          width: 100%;
+          padding: 0.75rem 1rem;
+          border: 1px solid #cbd5e1;
+          border-radius: 8px;
+          margin-bottom: 1rem;
+          font-size: 0.9rem;
+        }
+
         .vd-input:focus { outline: none; border-color: #059669; box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1); }
         .vd-modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 2rem; }
 
-        /* Animations */
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .vd-animate-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @media (max-width: 768px) {
+          .vd-sidebar { transform: translateX(-260px); }
+          .vd-main { margin-left: 0; padding: 1rem; }
+          .vd-stats-section { grid-template-columns: 1fr; }
+        }
       `}</style>
 
       <div className="vd-container">
-        <header className="vd-header">
-          <div className="vd-brand">
-            <h1>PharmaOps <span>Vendor</span></h1>
-          </div>
-          <div className="vd-user-profile">
-            <span>{currentVendor.companyName}</span>
-            <div className="vd-avatar">{currentVendor.companyName.charAt(0)}</div>
-          </div>
-        </header>
+        <button 
+          className={`vd-menu-toggle ${sidebarOpen ? 'sidebar-open' : ''}`}
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+        >
+          {sidebarOpen ? '✕' : '☰'}
+        </button>
 
-        <main className="vd-main">
-          {/* Invitation Notice */}
-          {renderInvitationNotice()}
+        <div className={`vd-sidebar ${!sidebarOpen ? 'closed' : ''}`}>
+          <div className="vd-sidebar-header">
+            <div className="vd-logo">MedSupply Vendor</div>
+          </div>
 
-          {/* Stats Grid */}
-          {currentVendor.status === 'ACCEPTED' && (
-            <div className="vd-stats-grid">
-              <div className="vd-stat-card yellow">
-                <span className="vd-stat-title">📬 New Requests</span>
-                <span className="vd-stat-value">{stats.newRequests}</span>
-              </div>
-              <div className="vd-stat-card red">
-                <span className="vd-stat-title">⚠️ Action Required</span>
-                <span className="vd-stat-value">{stats.actionRequired}</span>
-              </div>
-              <div className="vd-stat-card green">
-                <span className="vd-stat-title">✅ Ready to Ship</span>
-                <span className="vd-stat-value">{stats.readyToShip}</span>
+          <nav className="vd-nav">
+            <div 
+              className={`vd-nav-item ${currentPage === 'dashboard' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('dashboard')}
+            >
+              <span className="vd-nav-icon"></span>
+              <span>Dashboard</span>
+            </div>
+            <div 
+              className={`vd-nav-item ${currentPage === 'orders' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('orders')}
+            >
+              <span className="vd-nav-icon"></span>
+              <span>Orders</span>
+            </div>
+          </nav>
+
+          <div className="vd-sidebar-footer">
+            <div className="vd-profile">
+              <div className="vd-profile-avatar">{currentVendor.companyName.charAt(0)}</div>
+              <div>
+                <div className="vd-profile-name">{currentVendor.companyName}</div>
+                <div className="vd-profile-role">Vendor</div>
               </div>
             </div>
-          )}
+          </div>
+        </div>
 
-          {/* Incoming Requests */}
-          {currentVendor.status === 'ACCEPTED' && (
-            <section>
-              <div className="vd-section-title">
-                📋 Incoming Requests
-                {stats.newRequests > 0 && <span className="vd-badge-count">{stats.newRequests}</span>}
-              </div>
-              {renderIncomingRequests()}
-            </section>
-          )}
-
-          {/* Compliance & Shipping Tasks */}
-          {currentVendor.status === 'ACCEPTED' && (
-            <section>
-              <div className="vd-section-title">
-                📦 Compliance & Shipping Tasks
-              </div>
-              {renderComplianceList()}
-            </section>
-          )}
+        <main className={`vd-main ${!sidebarOpen ? 'sidebar-closed' : ''}`}>
+          {currentPage === 'dashboard' && renderDashboard()}
+          {currentPage === 'orders' && renderOrders()}
         </main>
 
-        {/* Shipment Modal */}
         {shipmentModalOpen && (
-          <div className="vd-modal-overlay">
-            <div className="vd-modal vd-animate-in">
+          <div className="vd-modal-overlay" onClick={() => setShipmentModalOpen(null)}>
+            <div className="vd-modal" onClick={e => e.stopPropagation()}>
               <h3>Create Shipment for {vendorOrders.find(o => o.id === shipmentModalOpen)?.orderNumber}</h3>
               <p style={{marginBottom:'1.5rem', color:'#6b7280', fontSize:'0.9rem'}}>
                 Compliance verified. Enter logistics details to generate label.
